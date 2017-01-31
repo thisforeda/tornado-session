@@ -17,6 +17,24 @@ class SessionStore (object):
                         'db' : 0,
                     })
                 )
+'''
+    usage :
+    
+    app = tornado.web.Application(
+        handlers = [ 
+            (r'/t', TT),
+            (r'/e', EE),
+            (r'/c', CC)
+        ],
+        redis_session = dict(
+            host = 'redis server host', 
+            port = 6379, # port
+            db = 0, # db index
+            password = "passwd , (None) no passwd",
+            ),
+        debug = True,
+        )
+'''
 
 gen_sessionid = lambda : "_".join([
             "0123456789"[rand(0, 9)],  uuid.uuid4().hex
