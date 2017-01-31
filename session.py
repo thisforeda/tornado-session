@@ -2,29 +2,38 @@ import pickle, uuid, redis
 from time import time as _time
 from random import randint as rand
 
-class RedisStore (object):
+class SessionStore (object):
     
-    def __init__(self):
-        if not hasattr(RedisClient, 'db'):
-            RedisClient.db = redis.StrictRedis(
-                host = '127.0.0.1',
-                port = 6379,
-                db = 0,
-                password = None
-            )        
+    def __init__(self, settings):
+        if not hasattr (SessionStore, 'db'):
+            
+            SessionStore.db = redis.StrictRedis(
+                **settings.get (
+                    'redis_session',
+                    {
+                        'host' : '127.0.0.1',
+                        'port' : 6379,
+                        'password' : None,
+                        'db' : 0,
+                    })
+                )
 
 gen_sessionid = lambda : "_".join([
             "0123456789"[rand(0, 9)],  uuid.uuid4().hex
         ]) 
  
 class Session (dict):
+    
     SESSION_KEY = 'session'
     
     def __init__(self, req):
-        dict.__init__(self)
-
-        # redis db
-        self.redis = RedisStore().db
+        dict.__init__ (self)
+        
+        # 如果是新会话的话需要客户端设置COOKIE, 否则没有必要
+        self._newcookie_ = False
+        
+        # redis 数据库
+        self.redis = SessionStore(req.settings).db
         
         self.load_session_from_db (req)
 
@@ -62,6 +71,7 @@ class Session (dict):
                     # 保存提取出的字典到 self (dict), 并且暂存 session_id
                     self.session_id = sess_id
                     self.update (os)
+                    
                     return
 
                 except :
@@ -69,28 +79,36 @@ class Session (dict):
 
         # 否则新建一个会话 id
         self.session_id = gen_sessionid()
+        self._newcookie_ = True
         
         return
     
-    def save (self, expires = (24 * 3600)):
+    def save (self, expires = None):
         '''
            expires 是 session 过期时间(以秒计), 默认是一天
         '''
         
         if self.redis.set (self.session_id, pickle.dumps (dict(self))):
             
-            #  设置 session_id 在 redis 中的过期时间
-            self.redis.expire (self.session_id, expires)
-
             #  设置 cookie, 以及 cookie 过期时间,
             #  一开始 expires 以为是过期秒数, 然后发现不论设置多大, 浏览器
             #  cookie 失效日期都是 1970 年, 后来发现原来是 当前 time() + 要保存的秒数
-            
-            self.req.set_cookie (
-                Session.SESSION_KEY,
-                self.session_id,
-                expires = _time() + expires
-                )
+            if self._newcookie_ or expires:
+
+                if expires == None :
+                    # session 默认有效时间是一天
+                    expires = 24 * 3600
+
+                assert isinstance (expires, int)
+                
+                #  设置 session_id 在 redis 中的过期时间
+                self.redis.expire (self.session_id, expires)
+                
+                self.req.set_cookie (
+                    Session.SESSION_KEY,
+                    self.session_id,
+                    expires = _time() + expires
+                    )
 
     def clear (self):
         '''
@@ -103,12 +121,12 @@ class Session (dict):
         
         '''
         
-        delattr(self.req, '_session_')
+        delattr (self.req, '_session_')
         
         if self.redis.delete (self.session_id):
             
             self.req.clear_cookie (
-                self.session_id
+                Session.SESSION_KEY
                 )
 
 class SessionMixin (object):
@@ -138,5 +156,4 @@ class SessionMixin (object):
             self._session_ = Session(self)
 
         return self._session_
-
-
+    
