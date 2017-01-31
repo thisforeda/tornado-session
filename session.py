@@ -2,28 +2,32 @@ import pickle, uuid, redis
 from time import time as _time
 from random import randint as rand
 
-
 '''
-    usage : SessionStore
+    simple session for tornado, 100 + code
+
+    usage &_& : SessionStore
     
-    app = tornado.web.Application(
+    app = tornado.web.Application (
         handlers = [ 
             (r'/t', TT),
             (r'/e', EE),
             (r'/c', CC)
         ],
-        redis_session = dict(
+        redis_session = dict (
             host = 'redis server host', 
             port = 6379, # port
             db = 0, # db index
             password = "passwd , (None) no passwd",
             ),
         debug = True,
-        )
+    )
+                                    (C) 2017 RiDiNH.
+
+                                    https://github.com/thisforeda 
 '''
 class SessionStore (object):
     
-    def __init__(self, settings):
+    def __init__ (self, settings):
         if not hasattr (SessionStore, 'db'):
             
             SessionStore.db = redis.StrictRedis(
@@ -53,7 +57,7 @@ class Session (dict):
 
     SESSION_KEY = 'session'
     
-    def __init__(self, req):
+    def __init__ (self, req):
 
         dict.__init__ (self)
         
@@ -69,7 +73,6 @@ class Session (dict):
         # 从数据库中提取 session 信息, 会话将会被 update 到自身
         self.load_session_from_db (req)
 
-
         
     def __getitem__ (self, k):
         '''
@@ -80,7 +83,7 @@ class Session (dict):
         
         return self.get (k, None)
     
-    def load_session_from_db(self, req):
+    def load_session_from_db (self, req):
         '''
            根据 cookie 从数据库中提取 session.
            不存在则新建一个会话字典.
@@ -111,7 +114,7 @@ class Session (dict):
                     pass
 
         # 新建一个会话 id
-        self.session_id = gen_sessionid()
+        self.session_id = gen_sessionid ()
 
         # 标记这是一个新会话, 通知 save() 对客户端设置 cookie
         self._newcookie_ = True
@@ -120,7 +123,8 @@ class Session (dict):
     
     def save (self, expires = None):
         '''
-           expires 是 session 过期时间(以秒计), 默认是一天
+           expires 是 session 过期时间(以秒计), 默认是一天, 建议
+           检查返回结果是否为True
         '''
         
         if self.redis.set (self.session_id, pickle.dumps (dict(self))):
@@ -142,8 +146,10 @@ class Session (dict):
                 self._req_.set_cookie (
                     Session.SESSION_KEY,
                     self.session_id,
-                    expires = _time() + expires
+                    expires = _time () + expires
                     )
+            # - #
+            return True
     
     def clear (self):
         '''
@@ -153,16 +159,18 @@ class Session (dict):
                 self.session.clear() # 清空会话信息
 
                 return self.write('session cleared')
-        
         '''
         
         delattr (self._req_, '_session_')
         
-        if self.redis.delete (self.session_id):
-            
-            self._req_.clear_cookie (
-                Session.SESSION_KEY
-                )
+        self.redis.delete (self.session_id)
+
+        # 注意, 由于一些原因,
+        # 可能数据库中的会话信息并没有被清除
+        self._req_.clear_cookie (
+            Session.SESSION_KEY
+            )
+
 
 
 class SessionMixin (object):
