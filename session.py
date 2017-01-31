@@ -58,8 +58,6 @@ class Session (dict):
     SESSION_KEY = 'session'
     
     def __init__ (self, req):
-
-        dict.__init__ (self)
         
         # 暂存 RequestHandler 用来后续 save()/clear() 使用
         self._req_ = req
@@ -193,7 +191,7 @@ class SessionMixin (object):
        >>>         self.write('hello %s' % username)
     '''
     
-    @property
+    @ property
     def session (self):
         '''
             没有必要每次访问 session 时都重新加载一下,
