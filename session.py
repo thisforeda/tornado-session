@@ -2,6 +2,25 @@ import pickle, uuid, redis
 from time import time as _time
 from random import randint as rand
 
+
+'''
+    usage : SessionStore
+    
+    app = tornado.web.Application(
+        handlers = [ 
+            (r'/t', TT),
+            (r'/e', EE),
+            (r'/c', CC)
+        ],
+        redis_session = dict(
+            host = 'redis server host', 
+            port = 6379, # port
+            db = 0, # db index
+            password = "passwd , (None) no passwd",
+            ),
+        debug = True,
+        )
+'''
 class SessionStore (object):
     
     def __init__(self, settings):
