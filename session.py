@@ -31,7 +31,15 @@ class Session (dict):
         # RequestHandler
         self.req = req
         
-
+    def __getitem__ (self, k):
+        '''
+           这里只是为了可以这样使用 : if self.session ['islogin']:...
+           如果不存在 islogin 这个 key 的话会抛出异常, 这样的话,
+           如果不存在这个 key 那么会返回 None
+        '''
+        
+        return self.get(k, None)
+    
     def load_session_from_db(self, req):
         '''
            根据 cookie 从数据库中提取 session.
