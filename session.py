@@ -4,49 +4,51 @@ from random import randint as rand
 
 '''
     simple session for tornado, 100 + code
+    usage &_& : Store
 
-    usage &_& : SessionStore
-    
-    app = tornado.web.Application (
-        handlers = [ 
-            (r'/t', TT),
-            (r'/e', EE),
-            (r'/c', CC)
-        ],
-        redis_session = dict (
-            host = 'redis server host', 
-            port = 6379, # port
-            db = 0, # db index
-            password = "passwd , (None) no passwd",
-            ),
-        debug = True,
-    )
+       >>> class IndexHandler(tornado.web.RequestHandler, SessionMixin):
+       >>>     def method (self):
+       >>> 
+       >>>         self.session['name'] = 'RiDiNH' # OR self.session.set('name', 'RiDiNH')
+       >>>         self.session['loggedin'] = True
+       >>> 
+       >>>         del self.session['loggedin']
+       >>>      
+       >>>         # 必须在每次改变会话字典后保存, 否则改变将不会保存到数据库
+       >>>         self.session.save() # OR self.session.save(expires=60)
+       >>>          
+       >>>         username = self.session.get("name", None)
+       >>> 
+       >>>         self.write('hello %s' % username)
+
+       >>> app = tornado.web.Application (
+       >>>     handlers = [ 
+       >>>         (r'/t', TT),
+       >>>         (r'/e', EE),
+       >>>         (r'/c', CC)
+       >>>     ],
+       >>> 
+       >>>     # redis_session 默认设置是 
+       >>>     # host:127.0.0.1, port:6379, no password
+       >>>     redis_session = dict (
+       >>>         host = 'redis server host', 
+       >>>         port = 6379, # port
+       >>>         db = 0, # db index
+       >>>         password = "passwd , (None) no passwd",
+       >>>     ),
+       >>>     cookie_secret = 'Your Cookie Secret',
+       >>>     debug = True,
+       >>> )
                                     (C) 2017 RiDiNH.
-
                                     https://github.com/thisforeda 
 '''
-class SessionStore (object):
-    
-    def __init__ (self, settings):
-        if not hasattr (SessionStore, 'db'):
-            
-            SessionStore.db = redis.StrictRedis(
-                ** settings.get (
-                    'redis_session',
-                    {
-                        'host' : '127.0.0.1',
-                        'port' : 6379,
-                        'password' : None,
-                        'db' : 0,
-                    })
-                )
 
-'''
-    产生一个 session id, 结果是一个随机数 + "_" + uuid4 结果
-    想遇到一个相同的结果可能性(对我来说忽略掉了)
-'''
+#
+#    产生一个 session id, 结果是一个随机数 + "_" + uuid4 结果
+#    遇到一个相同结果的可能性对我来说可以忽略不计了
+#
 gen_sessionid = lambda : "_".join([
-            "0123456789"[rand(0, 9)],  uuid.uuid4().hex
+            "0123456789abcdef"[rand(0, 15)],  uuid.uuid4().hex
         ]) 
  
 class Session (dict):
@@ -60,94 +62,111 @@ class Session (dict):
     def __init__ (self, req):
         
         # 暂存 RequestHandler 用来后续 save()/clear() 使用
-        self._req_ = req
-
         # 如果是新会话的话需要客户端设置COOKIE, 否则不需要
-        self._newcookie_ = False
+        self._req_ = req
+        self._new_session_ = False
+        self.application = req.application
         
-        # 获取数据库连接
-        self.redis = SessionStore(req.settings).db
-
         # 从数据库中提取 session 信息, 会话将会被 update 到自身
-        self.load_session_from_db (req)
+        self._load_session_ (req)
 
-        
+    @property
+    def _db_ (self):
+        if not hasattr (self.application, '_db_'):
+            
+            self.application._db_ = redis.StrictRedis(
+                ** self._req_.settings.get (
+                    'redis_session',
+                    {
+                        'host' : '127.0.0.1',
+                        'port' : 6379,
+                        'password' : None,
+                        'db' : 0,
+                    })
+                )
+
+        return self.application._db_
+    
     def __getitem__ (self, k):
         '''
            这里只是为了可以这样使用 : if self.session ['islogin']:...
            如果不存在 islogin 这个 key 的话会抛出异常, 这样的话,
            如果不存在这个 key 那么会返回 None
         '''
+        try :
+
+            return super (Session, self).__getitem__ (k)
         
-        return self.get (k, None)
-    
-    def load_session_from_db (self, req):
+        except KeyError:
+            return
+
+    def _load_session_ (self, req):
         '''
            根据 cookie 从数据库中提取 session.
            不存在则新建一个会话字典.
         '''
-        
-        sess_id = req.get_cookie (Session.SESSION_KEY)
+        sess_id = req.get_secure_cookie (Session.SESSION_KEY)
 
         if sess_id :
             
             # 如果cookie中存在 session cookie , 那么
             # 从数据库中读取序列化的值
-            sess_data = self.redis.get (sess_id)
+            sess_data = self._db_.get (sess_id)
             
             if sess_data:
                 try :
-                    
-                    os = pickle.loads (sess_data)
+                    do = pickle.loads (sess_data)
                     
                     # 保存提取出的字典到 self (dict), 并且暂存 session_id
                     self.session_id = sess_id
-                    self.update (os)
-                    
+                    self.update (do)
                     return
 
-                except :
-
+                except Exception:
                     # 如果这中间遇到异常的话会重新生成 session
                     pass
 
-        # 新建一个会话 id
+        # 新建一个会话 id 并标记这是一个新会话,
+        # 通知 save() 对客户端设置 cookie
+        
         self.session_id = gen_sessionid ()
-
-        # 标记这是一个新会话, 通知 save() 对客户端设置 cookie
-        self._newcookie_ = True
+        self._new_session_ = True
         
         return
-    
+
+    def set (self, k, v):
+        '''
+           self.session.set('key', 'value')
+        '''
+        self.__setitem__ (k, v)
+        
     def save (self, expires = None):
         '''
-           expires 是 session 过期时间(以秒计), 默认是一天, 建议
-           检查返回结果是否为True
+           expires 是 session 过期时间(以秒计), 默认是一天
         '''
         
-        if self.redis.set (self.session_id, pickle.dumps (dict(self))):
+        if self._db_.set (self.session_id, pickle.dumps (dict(self))):
             
             #  设置 cookie, 以及 cookie 过期时间,
             #  一开始 expires 以为是过期秒数, 然后发现不论设置多大, 浏览器
             #  cookie 失效日期都是 1970 年, 后来发现是当前 time() + 要保存的秒数
-            if self._newcookie_ or expires:
+            if self._new_session_ or expires:
 
                 if expires == None :
                     # session 默认有效时间是一天
-                    expires = 24 * 3600
+                    # 24 * 3600 seconds
+                    expires = 86400
 
                 assert isinstance (expires, int)
                 
                 #  设置 session_id 在 redis 中的过期时间
-                self.redis.expire (self.session_id, expires)
+                self._db_.expire (self.session_id, expires)
                 
-                self._req_.set_cookie (
+                self._req_.set_secure_cookie (
                     Session.SESSION_KEY,
                     self.session_id,
                     expires = _time () + expires
                     )
-            # - #
-            return True
     
     def clear (self):
         '''
@@ -155,13 +174,12 @@ class Session (dict):
             def method (self):
             
                 self.session.clear() # 清空会话信息
-
                 return self.write('session cleared')
         '''
         
         delattr (self._req_, '_session_')
         
-        self.redis.delete (self.session_id)
+        self._db_.delete (self.session_id)
 
         # 注意, 由于一些原因,
         # 可能数据库中的会话信息并没有被清除
@@ -169,27 +187,7 @@ class Session (dict):
             Session.SESSION_KEY
             )
 
-
-
 class SessionMixin (object):
-    '''
-       :: example ::
-       
-       >>> class IndexHandler(tornado.web.RequestHandler, SessionMixin):
-       >>>     def method (self):
-       >>> 
-       >>>         self.session['name'] = 'RiDiNH'
-       >>>         self.session['loggedin'] = True
-       >>> 
-       >>>         del self.session['loggedin']
-       >>>      
-       >>>         # 必须在每次改变会话字典后保存, 否则改变将不会保存到数据库
-       >>>         self.session.save()
-       >>>          
-       >>>         username = self.session.get("name", None)
-       >>> 
-       >>>         self.write('hello %s' % username)
-    '''
     
     @ property
     def session (self):
@@ -202,4 +200,3 @@ class SessionMixin (object):
             self._session_ = Session (self)
 
         return self._session_
-    
